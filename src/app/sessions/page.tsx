@@ -15,10 +15,22 @@ export default function SessionsPage() {
   const [loading, setLoading] = useState(true)
 
   useEffect(() => {
+    try { localStorage.setItem('lastViewedSessionsAt', Date.now().toString()) } catch {}
+  }, [])
+
+  useEffect(() => {
     setLoading(true)
     fetch(`/api/sessions?status=${filter}`)
       .then((r) => r.json())
-      .then(setSessions)
+      .then((data: Session[]) => {
+        setSessions(data)
+        if (data.length > 0) {
+          try {
+            const latest = Math.max(...data.map((s) => new Date(s.created_at).getTime()))
+            localStorage.setItem('latestSessionCreatedAt', latest.toString())
+          } catch {}
+        }
+      })
       .finally(() => setLoading(false))
   }, [filter])
 

@@ -3,7 +3,7 @@
 import { useEffect, useState } from 'react'
 import Link from 'next/link'
 import { useParams, useRouter } from 'next/navigation'
-import { Session } from '@/types'
+import { Session, BringItem } from '@/types'
 import { formatDate, formatTime } from '@/lib/utils'
 import { usePlayer } from '@/hooks/usePlayer'
 import { getStoredPin } from '@/hooks/usePin'
@@ -25,12 +25,27 @@ export default function SessionPage() {
   const [tab, setTab] = useState<Tab>('rsvp')
   const [showStartPin, setShowStartPin] = useState(false)
   const [showDeletePin, setShowDeletePin] = useState(false)
+  const [hasBringBadge, setHasBringBadge] = useState(false)
 
   useEffect(() => {
     fetch(`/api/sessions/${id}`)
       .then((r) => r.json())
       .then(setSession)
       .finally(() => setLoading(false))
+  }, [id])
+
+  useEffect(() => {
+    fetch(`/api/sessions/${id}/bring`)
+      .then((r) => r.json())
+      .then((items: BringItem[]) => {
+        if (items.length === 0) return
+        const latestCreatedAt = Math.max(...items.map((i) => new Date(i.created_at).getTime()))
+        try {
+          const seenStr = localStorage.getItem(`seen_bring_${id}`)
+          const seen = seenStr ? parseInt(seenStr) : 0
+          setHasBringBadge(latestCreatedAt > seen)
+        } catch {}
+      })
   }, [id])
 
   async function patchStatus(status: string) {
@@ -71,9 +86,9 @@ export default function SessionPage() {
     completed: 'bg-gray-500/20 text-gray-400',
   }
 
-  const TABS: { key: Tab; label: string; icon: string }[] = [
+  const TABS: { key: Tab; label: string; icon: string; badge?: boolean }[] = [
     { key: 'rsvp', label: 'RSVP', icon: '✋' },
-    { key: 'bring', label: 'Bring', icon: '🛒' },
+    { key: 'bring', label: 'Bring', icon: '🛒', badge: hasBringBadge },
     { key: 'info', label: 'Info', icon: 'ℹ️' },
   ]
 
@@ -115,11 +130,20 @@ export default function SessionPage() {
         {TABS.map((t) => (
           <button
             key={t.key}
-            onClick={() => setTab(t.key)}
-            className={`flex-1 rounded-lg py-2 text-sm font-medium transition-colors ${
+            onClick={() => {
+              setTab(t.key)
+              if (t.key === 'bring') {
+                setHasBringBadge(false)
+                try { localStorage.setItem(`seen_bring_${id}`, Date.now().toString()) } catch {}
+              }
+            }}
+            className={`relative flex-1 rounded-lg py-2 text-sm font-medium transition-colors ${
               tab === t.key ? 'bg-[#0d1117] text-white' : 'text-gray-400 hover:text-white'
             }`}
           >
+            {t.badge && (
+              <span className="absolute right-3 top-1.5 h-2 w-2 rounded-full bg-red-500" />
+            )}
             {t.icon} {t.label}
           </button>
         ))}

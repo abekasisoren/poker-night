@@ -26,15 +26,6 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
     return NextResponse.json({ error: 'No results provided' }, { status: 400 })
   }
 
-  // Zero-sum validation
-  const total = results.reduce((sum: number, r: { amount: number }) => sum + r.amount, 0)
-  if (Math.abs(total) > 0.02) {
-    return NextResponse.json(
-      { error: `Results don't balance. Off by ${total.toFixed(2)}` },
-      { status: 400 }
-    )
-  }
-
   const supabase = createServerClient()
 
   // Upsert all results

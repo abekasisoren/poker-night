@@ -34,6 +34,15 @@ export default function HomePage() {
       setUpcoming(sorted[0] ?? null)
       setRecent(completedSessions.slice(0, 3))
       setLoading(false)
+
+      // Update latest session timestamp for notification badge
+      const allSessions = [...upcomingSessions, ...completedSessions]
+      if (allSessions.length > 0) {
+        try {
+          const latest = Math.max(...allSessions.map((s) => new Date(s.created_at).getTime()))
+          localStorage.setItem('latestSessionCreatedAt', latest.toString())
+        } catch {}
+      }
     }
     load()
   }, [])

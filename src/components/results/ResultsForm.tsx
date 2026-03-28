@@ -1,10 +1,9 @@
 'use client'
 
-import { useState, useEffect, useCallback } from 'react'
+import { useState, useEffect } from 'react'
 import { useRouter } from 'next/navigation'
 import { Player, Result } from '@/types'
 import { getInitials, getPlayerColor, formatCurrency } from '@/lib/utils'
-import ZeroSumIndicator from './ZeroSumIndicator'
 import AmountInput from '@/components/ui/AmountInput'
 import { useToast } from '@/components/ui/Toast'
 
@@ -36,18 +35,19 @@ export default function ResultsForm({ sessionId, attendingPlayers, pin }: Result
   }, [sessionId])
 
   const sum = Object.values(amounts).reduce((a, b) => a + b, 0)
-  const isBalanced = Math.abs(sum) < 0.02
+  const filledCount = Object.values(amounts).filter((v) => v !== 0).length
 
   async function handleSubmit() {
-    if (!isBalanced) {
-      toast(`Results are off by ₪${Math.abs(sum).toFixed(2)}`, 'error')
-      return
-    }
     setSubmitting(true)
     try {
       const results = Object.entries(amounts)
         .filter(([, amt]) => amt !== 0)
         .map(([player_id, amount]) => ({ player_id, amount }))
+
+      if (results.length === 0) {
+        toast('Enter at least one result', 'error')
+        return
+      }
 
       const res = await fetch(`/api/sessions/${sessionId}/results`, {
         method: 'POST',
@@ -66,9 +66,10 @@ export default function ResultsForm({ sessionId, attendingPlayers, pin }: Result
     }
   }
 
-  // Show existing results (read-only)
+  // Read-only view after results are saved
   if (submitted && existingResults.length > 0) {
     const sorted = [...existingResults].sort((a, b) => Number(b.amount) - Number(a.amount))
+    const total = sorted.reduce((s, r) => s + Number(r.amount), 0)
     return (
       <div>
         <h2 className="mb-4 text-lg font-bold text-white">Final Results</h2>
@@ -90,15 +91,26 @@ export default function ResultsForm({ sessionId, attendingPlayers, pin }: Result
             </div>
           ))}
         </div>
+        {Math.abs(total) > 0.01 && (
+          <p className="mt-3 text-center text-xs text-gray-500">
+            Net table: {formatCurrency(total)}
+          </p>
+        )}
       </div>
     )
   }
 
   return (
     <div>
-      <ZeroSumIndicator amounts={amounts} playerCount={attendingPlayers.length} />
+      {/* Running total display — informational only, no enforcement */}
+      <div className="mb-4 rounded-xl border border-[#30363d] bg-[#161b22] p-4 text-center">
+        <p className="mb-1 text-xs text-gray-400">{filledCount}/{attendingPlayers.length} entered · running total</p>
+        <p className={`text-3xl font-black ${sum >= 0 ? 'text-emerald-400' : 'text-red-400'}`}>
+          {sum >= 0 ? '+' : ''}{sum.toFixed(2)}
+        </p>
+      </div>
 
-      <div className="mt-4 space-y-3">
+      <div className="space-y-3">
         {attendingPlayers.map((p) => (
           <div key={p.id} className="rounded-xl border border-[#30363d] bg-[#161b22] p-4">
             <div className="mb-2 flex items-center gap-3">
@@ -117,7 +129,7 @@ export default function ResultsForm({ sessionId, attendingPlayers, pin }: Result
 
       <button
         onClick={handleSubmit}
-        disabled={!isBalanced || submitting}
+        disabled={submitting}
         className="mt-6 w-full rounded-xl bg-emerald-600 py-4 text-base font-bold text-white transition-colors hover:bg-emerald-500 disabled:opacity-40"
       >
         {submitting ? 'Saving…' : 'Save Results'}

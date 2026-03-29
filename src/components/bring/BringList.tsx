@@ -1,7 +1,7 @@
 'use client'
 
 import { useState, useEffect, useCallback } from 'react'
-import { BringItem, BringCategory, Player } from '@/types'
+import { BringItem, BringCategory, Player, Rsvp } from '@/types'
 import { cn, getInitials, getPlayerColor } from '@/lib/utils'
 import { useToast } from '@/components/ui/Toast'
 import PinModal from '@/components/ui/PinModal'
@@ -14,12 +14,86 @@ const CATEGORIES: { key: BringCategory; label: string; icon: string }[] = [
   { key: 'other', label: 'Other', icon: '📦' },
 ]
 
+// Premium items assigned in priority order (everyone else gets beer)
+const PREMIUM_SLOTS = [
+  { item: 'Nuts', category: 'food' as BringCategory, icon: '🥜' },
+  { item: 'Nuts', category: 'food' as BringCategory, icon: '🥜' },
+  { item: 'Fruit', category: 'food' as BringCategory, icon: '🍎' },
+  { item: 'Coke (6-pack)', category: 'drinks' as BringCategory, icon: '🥤' },
+]
+// 2 ice bags when someone other than Oren is hosting
+const ICE_SLOT = { item: 'Ice (bag)', category: 'other' as BringCategory, icon: '🧊' }
+const BEER_SLOT = { item: 'Beer (6-pack)', category: 'drinks' as BringCategory, icon: '🍺' }
+
+// Oren is the only player with an ice machine
+const ICE_MACHINE_HOST = 'Oren'
+
+interface AssignmentPreview {
+  player: Player
+  item: string
+  category: BringCategory
+  icon: string
+}
+
 interface BringListProps {
   sessionId: string
   currentPlayer?: Player | null
+  sessionHost?: Player | null
 }
 
-export default function BringList({ sessionId, currentPlayer }: BringListProps) {
+/**
+ * Fair assignment algorithm.
+ * For each "premium" item slot, picks the confirmed player who has brought
+ * that item the FEWEST times historically (ties broken randomly).
+ * Remaining players get beer.
+ */
+function fairAssign(
+  players: Player[],
+  history: Record<string, Record<string, number>>,
+  includeIce: boolean,
+  seed: number // changes on reshuffle to randomise tie-breaking
+): AssignmentPreview[] {
+  const result: AssignmentPreview[] = []
+  const assigned = new Set<string>()
+
+  // When ice is needed, assign 2 bags to 2 different players
+  const slots = includeIce
+    ? [...PREMIUM_SLOTS, ICE_SLOT, ICE_SLOT]
+    : [...PREMIUM_SLOTS]
+
+  for (const slot of slots) {
+    const available = players.filter((p) => !assigned.has(p.id))
+    if (available.length === 0) break
+
+    // Sort by fewest times having THIS item; random (seeded) tiebreak
+    const sorted = [...available].sort((a, b) => {
+      const ca = history[a.id]?.[slot.item] ?? 0
+      const cb = history[b.id]?.[slot.item] ?? 0
+      if (ca !== cb) return ca - cb
+      // Stable-ish tiebreak using player id hash + seed
+      const ha = (a.id.charCodeAt(0) + seed) % 100
+      const hb = (b.id.charCodeAt(0) + seed) % 100
+      return ha - hb
+    })
+
+    const winner = sorted[0]
+    assigned.add(winner.id)
+    result.push({ player: winner, item: slot.item, category: slot.category, icon: slot.icon })
+  }
+
+  // Everyone else brings beer
+  for (const p of players) {
+    if (!assigned.has(p.id)) {
+      result.push({ player: p, item: BEER_SLOT.item, category: BEER_SLOT.category, icon: BEER_SLOT.icon })
+    }
+  }
+
+  return result
+}
+
+export default function BringList({ sessionId, currentPlayer, sessionHost }: BringListProps) {
+  // Ice is needed when the host doesn't have an ice machine
+  const hostHasIceMachine = sessionHost?.name === ICE_MACHINE_HOST
   const [items, setItems] = useState<BringItem[]>([])
   const [players, setPlayers] = useState<Player[]>([])
   const [loading, setLoading] = useState(true)
@@ -28,6 +102,16 @@ export default function BringList({ sessionId, currentPlayer }: BringListProps) 
   const [newCat, setNewCat] = useState<BringCategory>('food')
   const [newPlayerId, setNewPlayerId] = useState('')
   const [adding, setAdding] = useState(false)
+
+  // Auto-assign state
+  const [showAutoAssign, setShowAutoAssign] = useState(false)
+  const [includeIce, setIncludeIce] = useState(false)
+  const [autoAssigning, setAutoAssigning] = useState(false)
+  const [confirmedPlayers, setConfirmedPlayers] = useState<Player[]>([])
+  const [fairnessHistory, setFairnessHistory] = useState<Record<string, Record<string, number>>>({})
+  const [shuffleSeed, setShuffleSeed] = useState(0)
+  const [autoPreview, setAutoPreview] = useState<AssignmentPreview[]>([])
+
   const { toast } = useToast()
   const { requirePin, showModal, onPinSuccess, onPinCancel } = usePin()
 
@@ -45,6 +129,90 @@ export default function BringList({ sessionId, currentPlayer }: BringListProps) 
     load()
     try { localStorage.setItem(`seen_bring_${sessionId}`, Date.now().toString()) } catch {}
   }, [load, sessionId])
+
+  // Rebuild preview whenever ice or seed changes
+  useEffect(() => {
+    if (confirmedPlayers.length > 0) {
+      setAutoPreview(fairAssign(confirmedPlayers, fairnessHistory, includeIce, shuffleSeed))
+    }
+  }, [includeIce, shuffleSeed, confirmedPlayers, fairnessHistory])
+
+  async function openAutoAssign() {
+    // Fetch RSVPs and bring history in parallel
+    const [rsvpRes] = await Promise.all([
+      fetch(`/api/sessions/${sessionId}/rsvps`),
+    ])
+    const rsvps: Rsvp[] = await rsvpRes.json()
+    const confirmed = rsvps
+      .filter((r) => r.response === 'yes')
+      .map((r) => r.player)
+      .filter((p): p is Player => !!p)
+
+    if (confirmed.length === 0) {
+      toast('No confirmed players yet — wait for RSVPs first', 'error')
+      return
+    }
+
+    // Fetch fairness history for these players
+    const ids = confirmed.map((p) => p.id).join(',')
+    const histRes = await fetch(`/api/bring/fairness?players=${ids}`)
+    const history: Record<string, Record<string, number>> = await histRes.json()
+
+    // Default ice toggle: on when host doesn't have an ice machine
+    const iceDefault = !hostHasIceMachine
+    setIncludeIce(iceDefault)
+    setConfirmedPlayers(confirmed)
+    setFairnessHistory(history)
+    const seed = Date.now() % 1000
+    setShuffleSeed(seed)
+    setAutoPreview(fairAssign(confirmed, history, iceDefault, seed))
+    setShowAutoAssign(true)
+  }
+
+  function reshufflePreview() {
+    const newSeed = Math.floor(Math.random() * 1000)
+    setShuffleSeed(newSeed)
+  }
+
+  async function executeAutoAssign() {
+    setAutoAssigning(true)
+    const pin = getStoredPin()
+    try {
+      // Delete all existing items first
+      if (items.length > 0) {
+        await Promise.all(
+          items.map((item) =>
+            fetch(`/api/sessions/${sessionId}/bring/${item.id}`, {
+              method: 'DELETE',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ pin }),
+            })
+          )
+        )
+      }
+
+      // Post all assignments in parallel
+      const results = await Promise.all(
+        autoPreview.map((a) =>
+          fetch(`/api/sessions/${sessionId}/bring`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ item: a.item, category: a.category, player_id: a.player.id }),
+          }).then((r) => r.json())
+        )
+      )
+
+      setItems(results)
+      setShowAutoAssign(false)
+      setShowAdminForm(false)
+      toast(`✓ ${results.length} items assigned to ${confirmedPlayers.length} players!`, 'success')
+      try { localStorage.setItem(`bring_updated_${sessionId}`, Date.now().toString()) } catch {}
+    } catch {
+      toast('Failed to auto-assign', 'error')
+    } finally {
+      setAutoAssigning(false)
+    }
+  }
 
   async function addItem() {
     if (!newItem.trim() || !newPlayerId) {
@@ -64,7 +232,6 @@ export default function BringList({ sessionId, currentPlayer }: BringListProps) 
       setNewItem('')
       setNewPlayerId('')
       toast('Item assigned!', 'success')
-      // Update notification timestamp so others see the badge
       try { localStorage.setItem(`bring_updated_${sessionId}`, Date.now().toString()) } catch {}
     } finally {
       setAdding(false)
@@ -100,18 +267,123 @@ export default function BringList({ sessionId, currentPlayer }: BringListProps) 
     .map((p) => ({ player: p, items: items.filter((i) => i.player_id === p.id) }))
     .filter((g) => g.items.length > 0)
 
+  const beerCount = autoPreview.filter((a) => a.item === BEER_SLOT.item).length
+
+  // Build fairness tooltip: "last brought X N games ago"
+  function itemHistory(playerId: string, itemName: string): string {
+    const count = fairnessHistory[playerId]?.[itemName] ?? 0
+    if (count === 0) return 'never'
+    return `${count}×`
+  }
+
   return (
     <div>
-      {/* Admin assign button */}
-      <button
-        onClick={() => requirePin(() => setShowAdminForm((v) => !v))}
-        className="mb-4 w-full rounded-xl border border-dashed border-[#30363d] py-2.5 text-sm font-medium text-gray-400 hover:border-emerald-500 hover:text-emerald-400 transition-colors"
-      >
-        {showAdminForm ? '✕ Close' : '🔒 Assign item to player'}
-      </button>
+      {/* Admin buttons row */}
+      <div className="mb-4 flex gap-2">
+        <button
+          onClick={() => requirePin(() => { setShowAdminForm((v) => !v); setShowAutoAssign(false) })}
+          className="flex-1 rounded-xl border border-dashed border-[#30363d] py-2.5 text-sm font-medium text-gray-400 hover:border-emerald-500 hover:text-emerald-400 transition-colors"
+        >
+          {showAdminForm && !showAutoAssign ? '✕ Close' : '🔒 Assign item'}
+        </button>
+        <button
+          onClick={() => requirePin(() => { setShowAdminForm(true); openAutoAssign() })}
+          className="rounded-xl border border-dashed border-[#30363d] px-4 py-2.5 text-sm font-medium text-purple-400 hover:border-purple-500 hover:text-purple-300 transition-colors"
+          title="Auto-assign based on fair rotation history"
+        >
+          ⚡ Auto
+        </button>
+      </div>
 
-      {/* Admin form */}
-      {showAdminForm && (
+      {/* Auto-assign panel */}
+      {showAdminForm && showAutoAssign && (
+        <div className="mb-5 rounded-xl border border-purple-500/30 bg-purple-500/5 p-4">
+          <div className="mb-3 flex items-center justify-between">
+            <div>
+              <p className="text-sm font-semibold text-purple-400">⚡ Auto-assign</p>
+              <p className="text-xs text-gray-500">Fair rotation based on history</p>
+            </div>
+            <button onClick={() => setShowAutoAssign(false)} className="text-gray-500 hover:text-gray-300 text-lg leading-none">×</button>
+          </div>
+
+          <p className="mb-3 text-xs text-gray-400">
+            {confirmedPlayers.length} confirmed player{confirmedPlayers.length !== 1 ? 's' : ''} · {autoPreview.length} items
+          </p>
+
+          {/* Ice toggle */}
+          <button
+            onClick={() => setIncludeIce((v) => !v)}
+            className={cn(
+              'mb-4 flex w-full items-center gap-3 rounded-xl border px-4 py-2.5 transition-colors text-left',
+              includeIce ? 'border-blue-500/40 bg-blue-500/10' : 'border-[#30363d] bg-[#0d1117]'
+            )}
+          >
+            <div className={cn('relative h-5 w-9 flex-shrink-0 rounded-full transition-colors', includeIce ? 'bg-blue-500' : 'bg-gray-700')}>
+              <div className={cn('absolute top-0.5 h-4 w-4 rounded-full bg-white shadow transition-transform', includeIce ? 'translate-x-4' : 'translate-x-0.5')} />
+            </div>
+            <div className="flex-1">
+              <span className="text-sm text-gray-200">🧊 Ice needed </span>
+              {includeIce && <span className="text-xs text-blue-400">(2 bags, 2 players)</span>}
+            </div>
+            <span className="text-xs text-gray-500">
+              {hostHasIceMachine ? '🏠 Oren has a machine' : 'no freezer at venue'}
+            </span>
+          </button>
+
+          {/* Assignment preview with fairness hints */}
+          <div className="mb-3 space-y-1.5">
+            {autoPreview.map((a, i) => {
+              const histCount = itemHistory(a.player.id, a.item)
+              return (
+                <div key={i} className="flex items-center gap-2 rounded-lg bg-[#0d1117] px-3 py-2">
+                  <div
+                    className="flex h-6 w-6 flex-shrink-0 items-center justify-center rounded-full text-[10px] font-bold text-white"
+                    style={{ backgroundColor: getPlayerColor(a.player.name) }}
+                  >
+                    {getInitials(a.player.name)[0]}
+                  </div>
+                  <span className="flex-1 text-sm text-gray-200">{a.player.name}</span>
+                  <span className="text-sm">{a.icon} {a.item}</span>
+                  <span className="text-xs text-gray-600 w-10 text-right" title={`Has brought ${a.item} ${histCount} time(s)`}>
+                    {histCount === 'never' ? '🆕' : histCount}
+                  </span>
+                </div>
+              )
+            })}
+          </div>
+
+          {/* Summary */}
+          <p className="mb-3 text-center text-xs text-gray-500">
+            🥜×2 · 🍎×1 · 🥤×1{includeIce ? ' · 🧊×2' : ''} · 🍺×{beerCount}
+          </p>
+
+          <div className="flex gap-2">
+            <button
+              onClick={reshufflePreview}
+              className="rounded-xl border border-[#30363d] px-4 py-2.5 text-sm text-gray-400 hover:text-white transition-colors"
+              title="Re-roll tie-breakers"
+            >
+              🔀
+            </button>
+            <button
+              onClick={executeAutoAssign}
+              disabled={autoAssigning}
+              className="flex-1 rounded-xl bg-purple-600 py-2.5 text-sm font-bold text-white hover:bg-purple-500 disabled:opacity-50 transition-colors"
+            >
+              {autoAssigning ? 'Assigning…' : items.length > 0 ? '⚡ Replace & assign' : '⚡ Assign now'}
+            </button>
+          </div>
+
+          {items.length > 0 && (
+            <p className="mt-2 text-center text-xs text-yellow-600">
+              ⚠ Replaces {items.length} existing assignment{items.length !== 1 ? 's' : ''}
+            </p>
+          )}
+        </div>
+      )}
+
+      {/* Manual admin form */}
+      {showAdminForm && !showAutoAssign && (
         <div className="mb-5 rounded-xl border border-emerald-500/30 bg-emerald-500/5 p-4">
           <p className="mb-3 text-sm font-semibold text-emerald-400">Assign item to player</p>
 

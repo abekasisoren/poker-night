@@ -150,7 +150,7 @@ export default function SessionPage() {
       </div>
 
       {tab === 'rsvp' && <RsvpList sessionId={id} currentPlayerId={player?.id} />}
-      {tab === 'bring' && <BringList sessionId={id} currentPlayer={player} />}
+      {tab === 'bring' && <BringList sessionId={id} currentPlayer={player} sessionHost={session.host} />}
       {tab === 'info' && (
         <div className="space-y-3">
           <div className="space-y-2 rounded-xl border border-[#30363d] bg-[#161b22] p-4">

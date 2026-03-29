@@ -93,13 +93,10 @@ export default function SessionPage() {
     completed: 'bg-gray-500/20 text-gray-400',
   }
 
-  // Show Expenses tab only for active/completed sessions
-  const showExpenses = session.status === 'active' || session.status === 'completed'
-
   const TABS: { key: Tab; label: string; icon: string; badge?: boolean }[] = [
     { key: 'rsvp', label: 'RSVP', icon: '✋' },
     { key: 'bring', label: 'Bring', icon: '🛒', badge: hasBringBadge },
-    ...(showExpenses ? [{ key: 'expenses' as Tab, label: 'Expenses', icon: '💰' }] : []),
+    { key: 'expenses', label: 'Expenses', icon: '💰' },
     { key: 'info', label: 'Info', icon: 'ℹ️' },
   ]
 
@@ -184,7 +181,7 @@ export default function SessionPage() {
           <BringList sessionId={id} currentPlayer={player} sessionHost={session.host} />
         </>
       )}
-      {tab === 'expenses' && showExpenses && (
+      {tab === 'expenses' && (
         <ExpensesTab
           sessionId={id}
           currentPlayer={player}

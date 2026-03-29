@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useEffect, useCallback } from 'react'
+import { useState, useEffect, useCallback, useRef } from 'react'
 import { BringItem, BringCategory, Player, Rsvp } from '@/types'
 import { cn, getInitials, getPlayerColor } from '@/lib/utils'
 import { useToast } from '@/components/ui/Toast'
@@ -107,9 +107,10 @@ export default function BringList({ sessionId, currentPlayer, sessionHost }: Bri
   const [showAutoAssign, setShowAutoAssign] = useState(false)
   const [includeIce, setIncludeIce] = useState(false)
   const [autoAssigning, setAutoAssigning] = useState(false)
-  const [confirmedPlayers, setConfirmedPlayers] = useState<Player[]>([])
-  const [fairnessHistory, setFairnessHistory] = useState<Record<string, Record<string, number>>>({})
-  const [shuffleSeed, setShuffleSeed] = useState(0)
+  // Store confirmed players + history as refs so they're always current in callbacks
+  const confirmedRef = useRef<Player[]>([])
+  const historyRef = useRef<Record<string, Record<string, number>>>({})
+  const seedRef = useRef(0)
   const [autoPreview, setAutoPreview] = useState<AssignmentPreview[]>([])
 
   const { toast } = useToast()
@@ -130,23 +131,19 @@ export default function BringList({ sessionId, currentPlayer, sessionHost }: Bri
     try { localStorage.setItem(`seen_bring_${sessionId}`, Date.now().toString()) } catch {}
   }, [load, sessionId])
 
-  // Rebuild preview whenever ice or seed changes
-  useEffect(() => {
-    if (confirmedPlayers.length > 0) {
-      setAutoPreview(fairAssign(confirmedPlayers, fairnessHistory, includeIce, shuffleSeed))
-    }
-  }, [includeIce, shuffleSeed, confirmedPlayers, fairnessHistory])
-
   async function openAutoAssign() {
-    // Fetch RSVPs and bring history in parallel
-    const [rsvpRes] = await Promise.all([
-      fetch(`/api/sessions/${sessionId}/rsvps`),
-    ])
+    const rsvpRes = await fetch(`/api/sessions/${sessionId}/rsvps`)
     const rsvps: Rsvp[] = await rsvpRes.json()
-    const confirmed = rsvps
-      .filter((r) => r.response === 'yes')
-      .map((r) => r.player)
-      .filter((p): p is Player => !!p)
+
+    // Deduplicate confirmed players by id (guards against duplicate RSVP rows)
+    const seen = new Set<string>()
+    const confirmed: Player[] = []
+    for (const r of rsvps) {
+      if (r.response === 'yes' && r.player && !seen.has(r.player.id)) {
+        seen.add(r.player.id)
+        confirmed.push(r.player)
+      }
+    }
 
     if (confirmed.length === 0) {
       toast('No confirmed players yet — wait for RSVPs first', 'error')
@@ -158,20 +155,29 @@ export default function BringList({ sessionId, currentPlayer, sessionHost }: Bri
     const histRes = await fetch(`/api/bring/fairness?players=${ids}`)
     const history: Record<string, Record<string, number>> = await histRes.json()
 
-    // Default ice toggle: on when host doesn't have an ice machine
+    // Store in refs so toggle/reshuffle always have current values
+    confirmedRef.current = confirmed
+    historyRef.current = history
+    seedRef.current = Date.now() % 10000
+
+    // Default ice: on when host doesn't have an ice machine
     const iceDefault = !hostHasIceMachine
     setIncludeIce(iceDefault)
-    setConfirmedPlayers(confirmed)
-    setFairnessHistory(history)
-    const seed = Date.now() % 1000
-    setShuffleSeed(seed)
-    setAutoPreview(fairAssign(confirmed, history, iceDefault, seed))
+    // Build preview synchronously using local variables (not stale state)
+    setAutoPreview(fairAssign(confirmed, history, iceDefault, seedRef.current))
     setShowAutoAssign(true)
   }
 
+  function handleIceToggle() {
+    const newIce = !includeIce
+    setIncludeIce(newIce)
+    // Rebuild preview immediately with current refs — no stale state possible
+    setAutoPreview(fairAssign(confirmedRef.current, historyRef.current, newIce, seedRef.current))
+  }
+
   function reshufflePreview() {
-    const newSeed = Math.floor(Math.random() * 1000)
-    setShuffleSeed(newSeed)
+    seedRef.current = Math.floor(Math.random() * 10000)
+    setAutoPreview(fairAssign(confirmedRef.current, historyRef.current, includeIce, seedRef.current))
   }
 
   async function executeAutoAssign() {
@@ -205,7 +211,7 @@ export default function BringList({ sessionId, currentPlayer, sessionHost }: Bri
       setItems(results)
       setShowAutoAssign(false)
       setShowAdminForm(false)
-      toast(`✓ ${results.length} items assigned to ${confirmedPlayers.length} players!`, 'success')
+      toast(`✓ ${results.length} items assigned to ${confirmedRef.current.length} players!`, 'success')
       try { localStorage.setItem(`bring_updated_${sessionId}`, Date.now().toString()) } catch {}
     } catch {
       toast('Failed to auto-assign', 'error')
@@ -271,7 +277,7 @@ export default function BringList({ sessionId, currentPlayer, sessionHost }: Bri
 
   // Build fairness tooltip: "last brought X N games ago"
   function itemHistory(playerId: string, itemName: string): string {
-    const count = fairnessHistory[playerId]?.[itemName] ?? 0
+    const count = historyRef.current[playerId]?.[itemName] ?? 0
     if (count === 0) return 'never'
     return `${count}×`
   }
@@ -307,12 +313,12 @@ export default function BringList({ sessionId, currentPlayer, sessionHost }: Bri
           </div>
 
           <p className="mb-3 text-xs text-gray-400">
-            {confirmedPlayers.length} confirmed player{confirmedPlayers.length !== 1 ? 's' : ''} · {autoPreview.length} items
+            {confirmedRef.current.length} confirmed player{confirmedRef.current.length !== 1 ? 's' : ''} · {autoPreview.length} items
           </p>
 
           {/* Ice toggle */}
           <button
-            onClick={() => setIncludeIce((v) => !v)}
+            onClick={handleIceToggle}
             className={cn(
               'mb-4 flex w-full items-center gap-3 rounded-xl border px-4 py-2.5 transition-colors text-left',
               includeIce ? 'border-blue-500/40 bg-blue-500/10' : 'border-[#30363d] bg-[#0d1117]'

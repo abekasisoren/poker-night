@@ -38,6 +38,12 @@ export default function RsvpList({ sessionId, currentPlayerId }: RsvpListProps) 
   useEffect(() => { load() }, [load])
 
   async function updateRsvp(playerId: string, response: string) {
+    // Capture old response before updating
+    const prevResponse = rsvps.find((r) => r.player_id === playerId)?.response ?? 'pending'
+
+    // Skip if already at this response
+    if (prevResponse === response) return
+
     setUpdating(playerId)
     try {
       const res = await fetch(`/api/sessions/${sessionId}/rsvps`, {
@@ -47,6 +53,37 @@ export default function RsvpList({ sessionId, currentPlayerId }: RsvpListProps) 
       })
       if (!res.ok) { toast('Failed to update RSVP', 'error'); return }
       setRsvps((prev) => prev.map((r) => r.player_id === playerId ? { ...r, response: response as RsvpEntry['response'] } : r))
+
+      // ── Bring-list side effects for late changes ─────────────────────
+      // Only react when someone joins after items were assigned, or drops out
+      const goingYes = response === 'yes' && prevResponse !== 'yes'
+      const leavingYes = response !== 'yes' && prevResponse === 'yes'
+
+      if (goingYes || leavingYes) {
+        try {
+          const changeRes = await fetch(`/api/sessions/${sessionId}/bring/rsvp-change`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ player_id: playerId, new_response: response }),
+          })
+          const changeData = await changeRes.json()
+
+          switch (changeData.action) {
+            case 'added_beer':
+              toast('🍺 Beer (6-pack) added to bring list', 'success')
+              break
+            case 'removed_beer':
+              toast('🍺 Beer removed from bring list', 'success')
+              break
+            case 'reassigned_premium':
+              toast(`🔄 ${changeData.item} reassigned to another player`, 'success')
+              break
+            // 'none' → items not yet distributed, no toast needed
+          }
+        } catch {
+          // Bring update is best-effort — RSVP change already succeeded
+        }
+      }
     } catch {
       toast('Failed to update RSVP', 'error')
     } finally {

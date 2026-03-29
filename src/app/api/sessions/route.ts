@@ -26,7 +26,7 @@ export async function GET(req: NextRequest) {
 
 export async function POST(req: NextRequest) {
   const body = await req.json()
-  const { date, start_time, location, host_id, notes, pin } = body
+  const { date, start_time, location, host_id, notes, host_has_whiskey, pin } = body
 
   if (!verifyPin(pin)) {
     return NextResponse.json({ error: 'Invalid PIN' }, { status: 401 })
@@ -38,7 +38,14 @@ export async function POST(req: NextRequest) {
   const supabase = createServerClient()
   const { data, error } = await supabase
     .from('sessions')
-    .insert({ date, start_time, location, host_id, notes: notes || null })
+    .insert({
+      date,
+      start_time,
+      location,
+      host_id,
+      notes: notes || null,
+      host_has_whiskey: host_has_whiskey ?? null,
+    })
     .select('*, host:players!host_id(id, name)')
     .single()
 

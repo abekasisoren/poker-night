@@ -3,6 +3,7 @@
 import { useState } from 'react'
 import { useRouter } from 'next/navigation'
 import { Player } from '@/types'
+import { cn } from '@/lib/utils'
 import { useToast } from '@/components/ui/Toast'
 
 interface SessionFormProps {
@@ -22,6 +23,8 @@ export default function SessionForm({ players, pin, onCreated }: SessionFormProp
     host_id: '',
     notes: '',
   })
+  // null = unknown/not sure, true = host has whiskey, false = needs whiskey
+  const [hostHasWhiskey, setHostHasWhiskey] = useState<boolean | null>(null)
 
   function set(key: string, val: string) {
     setForm((f) => ({ ...f, [key]: val }))
@@ -38,7 +41,7 @@ export default function SessionForm({ players, pin, onCreated }: SessionFormProp
       const res = await fetch('/api/sessions', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ ...form, pin }),
+        body: JSON.stringify({ ...form, host_has_whiskey: hostHasWhiskey, pin }),
       })
       if (!res.ok) {
         const { error } = await res.json()
@@ -101,6 +104,36 @@ export default function SessionForm({ players, pin, onCreated }: SessionFormProp
           ))}
         </select>
       </div>
+      {/* Whiskey status */}
+      <div>
+        <label className="mb-2 block text-sm text-gray-400">🥃 Does the host have whiskey?</label>
+        <div className="flex gap-2">
+          {([
+            { value: null,  label: 'Not sure', icon: '❓' },
+            { value: true,  label: 'Has it',   icon: '🥃' },
+            { value: false, label: 'Needs it', icon: '⚠️' },
+          ] as { value: boolean | null; label: string; icon: string }[]).map((opt) => (
+            <button
+              key={String(opt.value)}
+              type="button"
+              onClick={() => setHostHasWhiskey(opt.value)}
+              className={cn(
+                'flex-1 rounded-xl border py-2.5 text-sm font-medium transition-colors',
+                hostHasWhiskey === opt.value
+                  ? opt.value === true
+                    ? 'border-amber-500 bg-amber-500/10 text-amber-400'
+                    : opt.value === false
+                      ? 'border-red-500 bg-red-500/10 text-red-400'
+                      : 'border-gray-500 bg-gray-500/10 text-gray-300'
+                  : 'border-[#30363d] text-gray-500 hover:text-gray-300'
+              )}
+            >
+              {opt.icon} {opt.label}
+            </button>
+          ))}
+        </div>
+      </div>
+
       <div>
         <label className="mb-1 block text-sm text-gray-400">Notes (optional)</label>
         <textarea

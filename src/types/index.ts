@@ -13,9 +13,20 @@ export interface Session {
   host?: Player
   notes: string | null
   status: 'upcoming' | 'active' | 'completed'
+  host_has_whiskey: boolean | null
   created_at: string
   rsvp_yes_count?: number
   rsvp_maybe_count?: number
+}
+
+export interface WhiskeyContribution {
+  id: string
+  session_id: string
+  player_id: string
+  player?: Player
+  bottles: number
+  price_per_bottle: number | null
+  created_at: string
 }
 
 export interface Rsvp {

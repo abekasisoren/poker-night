@@ -9,6 +9,7 @@ import { usePlayer } from '@/hooks/usePlayer'
 import { getStoredPin } from '@/hooks/usePin'
 import RsvpList from '@/components/rsvp/RsvpList'
 import BringList from '@/components/bring/BringList'
+import WhiskeySection from '@/components/bring/WhiskeySection'
 import PinModal from '@/components/ui/PinModal'
 import { useToast } from '@/components/ui/Toast'
 
@@ -150,7 +151,20 @@ export default function SessionPage() {
       </div>
 
       {tab === 'rsvp' && <RsvpList sessionId={id} currentPlayerId={player?.id} />}
-      {tab === 'bring' && <BringList sessionId={id} currentPlayer={player} sessionHost={session.host} />}
+      {tab === 'bring' && (
+        <>
+          <WhiskeySection
+            sessionId={id}
+            sessionHost={session.host}
+            hostHasWhiskey={session.host_has_whiskey ?? null}
+            currentPlayer={player}
+            onStatusChange={(value) =>
+              setSession((s) => s ? { ...s, host_has_whiskey: value } : s)
+            }
+          />
+          <BringList sessionId={id} currentPlayer={player} sessionHost={session.host} />
+        </>
+      )}
       {tab === 'info' && (
         <div className="space-y-3">
           <div className="space-y-2 rounded-xl border border-[#30363d] bg-[#161b22] p-4">

@@ -14,6 +14,7 @@ export interface Session {
   notes: string | null
   status: 'upcoming' | 'active' | 'completed'
   host_has_whiskey: boolean | null
+  host_has_chips: boolean | null
   created_at: string
   rsvp_yes_count?: number
   rsvp_maybe_count?: number

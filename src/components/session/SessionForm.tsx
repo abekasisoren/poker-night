@@ -6,6 +6,48 @@ import { Player } from '@/types'
 import { cn } from '@/lib/utils'
 import { useToast } from '@/components/ui/Toast'
 
+// ── Shared 3-way toggle used in the host-supplies section ───────────────────
+function SupplyToggle({
+  value,
+  onChange,
+  yesColor,
+}: {
+  value: boolean | null
+  onChange: (v: boolean | null) => void
+  yesColor: 'amber' | 'purple'
+}) {
+  const opts: { v: boolean | null; label: string; icon: string }[] = [
+    { v: null,  label: 'Not sure', icon: '❓' },
+    { v: true,  label: 'Has it',   icon: '✓' },
+    { v: false, label: 'Needs it', icon: '⚠' },
+  ]
+  return (
+    <div className="flex gap-2">
+      {opts.map((opt) => (
+        <button
+          key={String(opt.v)}
+          type="button"
+          onClick={() => onChange(opt.v)}
+          className={cn(
+            'flex-1 rounded-xl border py-2 text-xs font-medium transition-colors',
+            value === opt.v
+              ? opt.v === true
+                ? yesColor === 'amber'
+                  ? 'border-amber-500 bg-amber-500/10 text-amber-400'
+                  : 'border-purple-500 bg-purple-500/10 text-purple-400'
+                : opt.v === false
+                  ? 'border-red-500 bg-red-500/10 text-red-400'
+                  : 'border-gray-500 bg-gray-500/10 text-gray-300'
+              : 'border-[#30363d] text-gray-500 hover:text-gray-300'
+          )}
+        >
+          {opt.icon} {opt.label}
+        </button>
+      ))}
+    </div>
+  )
+}
+
 interface SessionFormProps {
   players: Player[]
   pin: string
@@ -23,8 +65,9 @@ export default function SessionForm({ players, pin, onCreated }: SessionFormProp
     host_id: '',
     notes: '',
   })
-  // null = unknown/not sure, true = host has whiskey, false = needs whiskey
+  // null = unknown/not sure, true = host has it, false = needs it
   const [hostHasWhiskey, setHostHasWhiskey] = useState<boolean | null>(null)
+  const [hostHasChips, setHostHasChips] = useState<boolean | null>(null)
 
   function set(key: string, val: string) {
     setForm((f) => ({ ...f, [key]: val }))
@@ -41,7 +84,7 @@ export default function SessionForm({ players, pin, onCreated }: SessionFormProp
       const res = await fetch('/api/sessions', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ ...form, host_has_whiskey: hostHasWhiskey, pin }),
+        body: JSON.stringify({ ...form, host_has_whiskey: hostHasWhiskey, host_has_chips: hostHasChips, pin }),
       })
       if (!res.ok) {
         const { error } = await res.json()
@@ -104,33 +147,28 @@ export default function SessionForm({ players, pin, onCreated }: SessionFormProp
           ))}
         </select>
       </div>
-      {/* Whiskey status */}
-      <div>
-        <label className="mb-2 block text-sm text-gray-400">🥃 Does the host have whiskey?</label>
-        <div className="flex gap-2">
-          {([
-            { value: null,  label: 'Not sure', icon: '❓' },
-            { value: true,  label: 'Has it',   icon: '🥃' },
-            { value: false, label: 'Needs it', icon: '⚠️' },
-          ] as { value: boolean | null; label: string; icon: string }[]).map((opt) => (
-            <button
-              key={String(opt.value)}
-              type="button"
-              onClick={() => setHostHasWhiskey(opt.value)}
-              className={cn(
-                'flex-1 rounded-xl border py-2.5 text-sm font-medium transition-colors',
-                hostHasWhiskey === opt.value
-                  ? opt.value === true
-                    ? 'border-amber-500 bg-amber-500/10 text-amber-400'
-                    : opt.value === false
-                      ? 'border-red-500 bg-red-500/10 text-red-400'
-                      : 'border-gray-500 bg-gray-500/10 text-gray-300'
-                  : 'border-[#30363d] text-gray-500 hover:text-gray-300'
-              )}
-            >
-              {opt.icon} {opt.label}
-            </button>
-          ))}
+      {/* Host supplies */}
+      <div className="rounded-xl border border-[#30363d] bg-[#161b22] p-4 space-y-4">
+        <p className="text-sm font-medium text-gray-300">What does the host have?</p>
+
+        {/* Whiskey */}
+        <div>
+          <label className="mb-2 block text-xs text-gray-500">🥃 Whiskey</label>
+          <SupplyToggle
+            value={hostHasWhiskey}
+            onChange={setHostHasWhiskey}
+            yesColor="amber"
+          />
+        </div>
+
+        {/* Poker chips & kit */}
+        <div>
+          <label className="mb-2 block text-xs text-gray-500">🃏 Poker Chips &amp; Kit</label>
+          <SupplyToggle
+            value={hostHasChips}
+            onChange={setHostHasChips}
+            yesColor="purple"
+          />
         </div>
       </div>
 

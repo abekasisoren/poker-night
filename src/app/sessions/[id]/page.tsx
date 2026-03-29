@@ -10,6 +10,7 @@ import { getStoredPin } from '@/hooks/usePin'
 import RsvpList from '@/components/rsvp/RsvpList'
 import BringList from '@/components/bring/BringList'
 import WhiskeySection from '@/components/bring/WhiskeySection'
+import ChipsSection from '@/components/bring/ChipsSection'
 import PinModal from '@/components/ui/PinModal'
 import { useToast } from '@/components/ui/Toast'
 
@@ -160,6 +161,14 @@ export default function SessionPage() {
             currentPlayer={player}
             onStatusChange={(value) =>
               setSession((s) => s ? { ...s, host_has_whiskey: value } : s)
+            }
+          />
+          <ChipsSection
+            sessionId={id}
+            hostHasChips={session.host_has_chips ?? null}
+            currentPlayer={player}
+            onStatusChange={(value) =>
+              setSession((s) => s ? { ...s, host_has_chips: value } : s)
             }
           />
           <BringList sessionId={id} currentPlayer={player} sessionHost={session.host} />

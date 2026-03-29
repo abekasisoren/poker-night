@@ -26,7 +26,7 @@ export async function GET(req: NextRequest) {
 
 export async function POST(req: NextRequest) {
   const body = await req.json()
-  const { date, start_time, location, host_id, notes, host_has_whiskey, pin } = body
+  const { date, start_time, location, host_id, notes, host_has_whiskey, host_has_chips, pin } = body
 
   if (!verifyPin(pin)) {
     return NextResponse.json({ error: 'Invalid PIN' }, { status: 401 })
@@ -45,6 +45,7 @@ export async function POST(req: NextRequest) {
       host_id,
       notes: notes || null,
       host_has_whiskey: host_has_whiskey ?? null,
+      host_has_chips: host_has_chips ?? null,
     })
     .select('*, host:players!host_id(id, name)')
     .single()

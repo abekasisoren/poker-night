@@ -5,10 +5,7 @@ import { createServerClient } from '@/lib/supabase/server'
 
 /**
  * GET /api/sessions/[id]/expenses
- * Returns all expense data for a session:
- *   - whiskey contributions (who brought + cost)
- *   - whiskey drinkers (who drank)
- *   - food orders (what was ordered, by whom, cost, who ate)
+ * Returns all expense data for a session.
  */
 export async function GET(
   _req: NextRequest,
@@ -17,7 +14,7 @@ export async function GET(
   const supabase = createServerClient()
   const sessionId = params.id
 
-  const [whiskeyContribs, whiskeyDrinkers, foodOrders] = await Promise.all([
+  const [whiskeyContribs, whiskeyDrinkers, foodOrders, responses, debts] = await Promise.all([
     supabase
       .from('whiskey_contributions')
       .select('*, player:players!player_id(id, name)')
@@ -42,18 +39,33 @@ export async function GET(
       `)
       .eq('session_id', sessionId)
       .order('created_at'),
+
+    supabase
+      .from('expense_responses')
+      .select('*, player:players!player_id(id, name)')
+      .eq('session_id', sessionId)
+      .order('answered_at'),
+
+    supabase
+      .from('expense_debts')
+      .select(`
+        *,
+        from_player:players!from_player_id(id, name),
+        to_player:players!to_player_id(id, name)
+      `)
+      .eq('session_id', sessionId)
+      .order('created_at'),
   ])
 
-  if (whiskeyContribs.error)
-    return NextResponse.json({ error: whiskeyContribs.error.message }, { status: 500 })
-  if (whiskeyDrinkers.error)
-    return NextResponse.json({ error: whiskeyDrinkers.error.message }, { status: 500 })
-  if (foodOrders.error)
-    return NextResponse.json({ error: foodOrders.error.message }, { status: 500 })
+  for (const q of [whiskeyContribs, whiskeyDrinkers, foodOrders, responses, debts]) {
+    if (q.error) return NextResponse.json({ error: q.error.message }, { status: 500 })
+  }
 
   return NextResponse.json({
     whiskey_contributions: whiskeyContribs.data ?? [],
     whiskey_drinkers: whiskeyDrinkers.data ?? [],
     food_orders: foodOrders.data ?? [],
+    responses: responses.data ?? [],
+    debts: debts.data ?? [],
   })
 }

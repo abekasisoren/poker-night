@@ -184,8 +184,12 @@ export default function SessionPage() {
       {tab === 'expenses' && (
         <ExpensesTab
           sessionId={id}
+          expenseStatus={session.expense_status ?? null}
           currentPlayer={player}
           allPlayers={allPlayers}
+          onStatusChange={(status) =>
+            setSession((s) => s ? { ...s, expense_status: status } : s)
+          }
         />
       )}
       {tab === 'info' && (

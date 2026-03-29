@@ -15,6 +15,7 @@ export interface Session {
   status: 'upcoming' | 'active' | 'completed'
   host_has_whiskey: boolean | null
   host_has_chips: boolean | null
+  expense_status: 'collecting' | 'settled' | null
   created_at: string
   rsvp_yes_count?: number
   rsvp_maybe_count?: number
@@ -112,4 +113,26 @@ export interface ExpensePayment {
   to_player_id: string
   to_name: string
   amount: number
+}
+
+/** Tracks whether a player has submitted their expense answers */
+export interface ExpenseResponse {
+  id: string
+  session_id: string
+  player_id: string
+  player?: Player
+  answered_at: string
+}
+
+/** A locked debt record created when admin finalises settlement */
+export interface ExpenseDebt {
+  id: string
+  session_id: string
+  from_player_id: string
+  from_player?: Player
+  to_player_id: string
+  to_player?: Player
+  amount: number
+  paid_at: string | null
+  created_at: string
 }

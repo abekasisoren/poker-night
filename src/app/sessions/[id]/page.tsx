@@ -3,7 +3,7 @@
 import { useEffect, useState } from 'react'
 import Link from 'next/link'
 import { useParams, useRouter } from 'next/navigation'
-import { Session, BringItem } from '@/types'
+import { Session, BringItem, Player } from '@/types'
 import { formatDate, formatTime } from '@/lib/utils'
 import { usePlayer } from '@/hooks/usePlayer'
 import { getStoredPin } from '@/hooks/usePin'
@@ -11,10 +11,11 @@ import RsvpList from '@/components/rsvp/RsvpList'
 import BringList from '@/components/bring/BringList'
 import WhiskeySection from '@/components/bring/WhiskeySection'
 import ChipsSection from '@/components/bring/ChipsSection'
+import ExpensesTab from '@/components/expenses/ExpensesTab'
 import PinModal from '@/components/ui/PinModal'
 import { useToast } from '@/components/ui/Toast'
 
-type Tab = 'rsvp' | 'bring' | 'info'
+type Tab = 'rsvp' | 'bring' | 'expenses' | 'info'
 
 export default function SessionPage() {
   const params = useParams()
@@ -23,6 +24,7 @@ export default function SessionPage() {
   const { player } = usePlayer()
   const { toast } = useToast()
   const [session, setSession] = useState<Session | null>(null)
+  const [allPlayers, setAllPlayers] = useState<Player[]>([])
   const [loading, setLoading] = useState(true)
   const [tab, setTab] = useState<Tab>('rsvp')
   const [showStartPin, setShowStartPin] = useState(false)
@@ -30,10 +32,13 @@ export default function SessionPage() {
   const [hasBringBadge, setHasBringBadge] = useState(false)
 
   useEffect(() => {
-    fetch(`/api/sessions/${id}`)
-      .then((r) => r.json())
-      .then(setSession)
-      .finally(() => setLoading(false))
+    Promise.all([
+      fetch(`/api/sessions/${id}`).then((r) => r.json()),
+      fetch('/api/players').then((r) => r.json()),
+    ]).then(([sess, players]) => {
+      setSession(sess)
+      setAllPlayers(players ?? [])
+    }).finally(() => setLoading(false))
   }, [id])
 
   useEffect(() => {
@@ -88,9 +93,13 @@ export default function SessionPage() {
     completed: 'bg-gray-500/20 text-gray-400',
   }
 
+  // Show Expenses tab only for active/completed sessions
+  const showExpenses = session.status === 'active' || session.status === 'completed'
+
   const TABS: { key: Tab; label: string; icon: string; badge?: boolean }[] = [
     { key: 'rsvp', label: 'RSVP', icon: '✋' },
     { key: 'bring', label: 'Bring', icon: '🛒', badge: hasBringBadge },
+    ...(showExpenses ? [{ key: 'expenses' as Tab, label: 'Expenses', icon: '💰' }] : []),
     { key: 'info', label: 'Info', icon: 'ℹ️' },
   ]
 
@@ -128,6 +137,7 @@ export default function SessionPage() {
         </button>
       )}
 
+      {/* Tab bar */}
       <div className="mb-5 flex gap-1 rounded-xl bg-[#161b22] p-1">
         {TABS.map((t) => (
           <button
@@ -139,12 +149,12 @@ export default function SessionPage() {
                 try { localStorage.setItem(`seen_bring_${id}`, Date.now().toString()) } catch {}
               }
             }}
-            className={`relative flex-1 rounded-lg py-2 text-sm font-medium transition-colors ${
+            className={`relative flex-1 rounded-lg py-2 text-xs font-medium transition-colors ${
               tab === t.key ? 'bg-[#0d1117] text-white' : 'text-gray-400 hover:text-white'
             }`}
           >
             {t.badge && (
-              <span className="absolute right-3 top-1.5 h-2 w-2 rounded-full bg-red-500" />
+              <span className="absolute right-2 top-1.5 h-2 w-2 rounded-full bg-red-500" />
             )}
             {t.icon} {t.label}
           </button>
@@ -173,6 +183,13 @@ export default function SessionPage() {
           />
           <BringList sessionId={id} currentPlayer={player} sessionHost={session.host} />
         </>
+      )}
+      {tab === 'expenses' && showExpenses && (
+        <ExpensesTab
+          sessionId={id}
+          currentPlayer={player}
+          allPlayers={allPlayers}
+        />
       )}
       {tab === 'info' && (
         <div className="space-y-3">

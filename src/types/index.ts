@@ -72,3 +72,44 @@ export interface LeaderboardEntry {
   winning_sessions: number
   losing_sessions: number
 }
+
+// ── Post-game expenses ───────────────────────────────────────────────────────
+
+export interface WhiskeyDrinker {
+  id: string
+  session_id: string
+  player_id: string
+  player?: Player
+  created_at: string
+}
+
+export type FoodType = 'pizza' | 'sushi' | 'hamburger' | 'fried_chicken'
+
+export interface FoodParticipant {
+  id: string
+  food_order_id: string
+  player_id: string
+  player?: Player
+  created_at: string
+}
+
+export interface FoodOrder {
+  id: string
+  session_id: string
+  ordered_by: string
+  orderer?: Player
+  food_type: FoodType
+  description: string | null
+  total_cost: number
+  participants: FoodParticipant[]
+  created_at: string
+}
+
+/** Computed settlement: from_player owes amount to to_player */
+export interface ExpensePayment {
+  from_player_id: string
+  from_name: string
+  to_player_id: string
+  to_name: string
+  amount: number
+}

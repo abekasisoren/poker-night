@@ -443,47 +443,43 @@ export default function ExpensesTab({ sessionId, currentPlayer, allPlayers }: Ex
           <p className="text-sm font-bold text-amber-400">Who drank whiskey?</p>
         </div>
 
-        {whiskeyContribs.length === 0 ? (
-          <p className="text-xs text-gray-500">No whiskey was brought to this session.</p>
-        ) : (
-          <>
-            {/* Contribution summary */}
-            <div className="rounded-lg bg-[#0d1117] px-3 py-2 space-y-1">
-              {whiskeyContribs.map((c) => (
-                <div key={c.id} className="flex justify-between text-xs">
-                  <span className="text-gray-300">{c.player?.name ?? '?'}</span>
-                  <span className="text-amber-400">
-                    {c.bottles}× bottle{c.bottles !== 1 ? 's' : ''}
-                    {c.price_per_bottle != null ? ` · ${fmt(c.price_per_bottle)}/ea` : ''}
-                  </span>
-                </div>
-              ))}
-            </div>
-
-            {/* All players toggle */}
-            <p className="text-xs text-gray-500 uppercase tracking-wide">Tap to mark drinkers</p>
-            <div className="flex flex-wrap gap-2">
-              {allPlayers.map((p) => {
-                const drank = drinkerIds.has(p.id)
-                const isMe = currentPlayer?.id === p.id
-                return (
-                  <button
-                    key={p.id}
-                    disabled={togglingWhiskey === p.id}
-                    onClick={() => toggleWhiskeyDrinker(p.id)}
-                    className={`rounded-full border px-3 py-1 text-xs font-medium transition-colors ${
-                      drank
-                        ? 'border-amber-500 bg-amber-500/20 text-amber-300'
-                        : 'border-[#30363d] text-gray-500 hover:border-gray-400 hover:text-gray-300'
-                    } ${isMe ? 'ring-1 ring-white/20' : ''}`}
-                  >
-                    {drank ? '🥃 ' : ''}{p.name}
-                  </button>
-                )
-              })}
-            </div>
-          </>
+        {/* Contribution summary — only when someone formally brought whiskey */}
+        {whiskeyContribs.length > 0 && (
+          <div className="rounded-lg bg-[#0d1117] px-3 py-2 space-y-1">
+            {whiskeyContribs.map((c) => (
+              <div key={c.id} className="flex justify-between text-xs">
+                <span className="text-gray-300">{c.player?.name ?? '?'}</span>
+                <span className="text-amber-400">
+                  {c.bottles}× bottle{c.bottles !== 1 ? 's' : ''}
+                  {c.price_per_bottle != null ? ` · ${fmt(c.price_per_bottle)}/ea` : ''}
+                </span>
+              </div>
+            ))}
+          </div>
         )}
+
+        {/* Always show player picker */}
+        <p className="text-xs text-gray-500 uppercase tracking-wide">Tap to mark drinkers</p>
+        <div className="flex flex-wrap gap-2">
+          {allPlayers.map((p) => {
+            const drank = drinkerIds.has(p.id)
+            const isMe = currentPlayer?.id === p.id
+            return (
+              <button
+                key={p.id}
+                disabled={togglingWhiskey === p.id}
+                onClick={() => toggleWhiskeyDrinker(p.id)}
+                className={`rounded-full border px-3 py-1 text-xs font-medium transition-colors ${
+                  drank
+                    ? 'border-amber-500 bg-amber-500/20 text-amber-300'
+                    : 'border-[#30363d] text-gray-500 hover:border-gray-400 hover:text-gray-300'
+                } ${isMe ? 'ring-1 ring-white/20' : ''}`}
+              >
+                {drank ? '🥃 ' : ''}{p.name}
+              </button>
+            )
+          })}
+        </div>
       </div>
 
       {/* ── Food orders ──────────────────────────────────────────────── */}

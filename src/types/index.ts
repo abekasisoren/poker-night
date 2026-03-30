@@ -1,6 +1,7 @@
 export interface Player {
   id: string
   name: string
+  phone: string | null   // E.164 format, e.g. +972501234567
   created_at: string
 }
 

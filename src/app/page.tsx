@@ -59,12 +59,21 @@ export default function HomePage() {
             </p>
           )}
         </div>
-        <button
-          onClick={() => setShowPicker(true)}
-          className="rounded-full bg-[#21262d] px-4 py-2 text-sm font-medium text-gray-300 hover:text-white"
-        >
-          {player ? '↩ Switch' : 'Who am I?'}
-        </button>
+        <div className="flex items-center gap-2">
+          <Link
+            href="/admin"
+            className="rounded-full bg-[#21262d] px-3 py-2 text-xs font-medium text-gray-500 hover:text-gray-300"
+            title="Admin"
+          >
+            ⚙️
+          </Link>
+          <button
+            onClick={() => setShowPicker(true)}
+            className="rounded-full bg-[#21262d] px-4 py-2 text-sm font-medium text-gray-300 hover:text-white"
+          >
+            {player ? '↩ Switch' : 'Who am I?'}
+          </button>
+        </div>
       </div>
 
       {loading ? (

@@ -1,5 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createServerClient } from '@/lib/supabase/server'
+import { sendWhatsApp, msgBringList } from '@/lib/whatsapp'
+import { formatDate, formatTime } from '@/lib/utils'
 
 export const dynamic = 'force-dynamic'
 
@@ -173,6 +175,37 @@ export async function GET(req: NextRequest) {
       ice: includeIce,
       players: confirmed.length,
     })
+
+    // ── WhatsApp: send each player their bring list ───────────────────────
+    try {
+      const phoneMap = new Map<string, string | null>()
+      const { data: playerRows } = await supabase
+        .from('players')
+        .select('id, phone')
+        .in('id', confirmed.map((p) => p.id))
+      for (const row of playerRows ?? []) {
+        phoneMap.set(row.id, row.phone ?? null)
+      }
+
+      const dateStr = formatDate(session.date)
+      const timeStr = formatTime(session.start_time)
+
+      for (const assignment of assignments) {
+        const phone = phoneMap.get(assignment.player_id)
+        if (!phone) continue
+        // Find all items for this player
+        const myItems = assignments
+          .filter((a) => a.player_id === assignment.player_id)
+          .map((a) => a.item)
+        if (myItems.length === 0) continue
+        sendWhatsApp(
+          phone,
+          msgBringList({ date: dateStr, time: timeStr, location: session.location, items: myItems })
+        )
+      }
+    } catch (e) {
+      console.error('WA bring-list error:', e)
+    }
   }
 
   return NextResponse.json({ ok: true, processed: results })

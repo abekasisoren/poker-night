@@ -2,6 +2,11 @@ export const dynamic = 'force-dynamic'
 
 import { NextRequest, NextResponse } from 'next/server'
 import { createServerClient } from '@/lib/supabase/server'
+import {
+  sendWhatsApp, sendWhatsAppBulk,
+  msgExpenseRequest, msgDebtNotification,
+} from '@/lib/whatsapp'
+import { formatDate } from '@/lib/utils'
 
 const VALID_PIN = process.env.ADMIN_PIN ?? '1234'
 
@@ -9,8 +14,8 @@ const VALID_PIN = process.env.ADMIN_PIN ?? '1234'
  * POST /api/sessions/[id]/expenses/settle
  * Body: { pin, action: 'collect' | 'finalize' }
  *
- * 'collect'  → sets expense_status = 'collecting' (End Session pressed)
- * 'finalize' → computes settlement, writes expense_debts, sets status = 'settled'
+ * 'collect'  → sets expense_status = 'collecting' + WA to all confirmed players
+ * 'finalize' → computes settlement, writes expense_debts, sets status = 'settled' + WA to debtors
  */
 export async function POST(
   req: NextRequest,
@@ -28,16 +33,41 @@ export async function POST(
   const supabase = createServerClient()
   const sessionId = params.id
 
+  // Fetch session info (needed for both actions)
+  const { data: session } = await supabase
+    .from('sessions')
+    .select('date, host:players!host_id(id, name)')
+    .eq('id', sessionId)
+    .single()
+
   if (action === 'collect') {
     const { error } = await supabase
       .from('sessions')
       .update({ expense_status: 'collecting' })
       .eq('id', sessionId)
     if (error) return NextResponse.json({ error: error.message }, { status: 500 })
+
+    // WA: ask all confirmed players to answer expense questions
+    try {
+      const { data: confirmed } = await supabase
+        .from('rsvps')
+        .select('player:players!player_id(id, name, phone)')
+        .eq('session_id', sessionId)
+        .eq('response', 'yes')
+      const players = (confirmed ?? []).map(
+        (r: { player: unknown }) => r.player as { phone: string | null }
+      )
+      const dateStr = formatDate(session?.date ?? '')
+      sendWhatsAppBulk(players, msgExpenseRequest({ date: dateStr, sessionId }))
+    } catch (e) {
+      console.error('WA expense-request error:', e)
+    }
+
     return NextResponse.json({ ok: true, expense_status: 'collecting' })
   }
 
-  // action === 'finalize' — compute settlement and lock it
+  // ── action === 'finalize' ────────────────────────────────────────────────
+
   const [whiskeyContribs, whiskeyDrinkers, foodOrders] = await Promise.all([
     supabase
       .from('whiskey_contributions')
@@ -64,7 +94,7 @@ export async function POST(
   // Delete any previous debt records for this session
   await supabase.from('expense_debts').delete().eq('session_id', sessionId)
 
-  // Insert new ones (only non-zero)
+  // Insert new ones
   if (debts.length > 0) {
     const { error: insertErr } = await supabase.from('expense_debts').insert(
       debts.map((d) => ({
@@ -83,10 +113,44 @@ export async function POST(
     .eq('id', sessionId)
   if (error) return NextResponse.json({ error: error.message }, { status: 500 })
 
+  // WA: notify each debtor what they owe
+  try {
+    if (debts.length > 0) {
+      // Fetch phone numbers for all involved players
+      const allIds = Array.from(new Set(debts.flatMap((d) => [d.from_player_id, d.to_player_id])))
+      const { data: playerRows } = await supabase
+        .from('players')
+        .select('id, name, phone')
+        .in('id', allIds)
+      const phoneMap = new Map(
+        (playerRows ?? []).map((p: { id: string; name: string; phone: string | null }) => [p.id, p])
+      )
+
+      for (const debt of debts) {
+        const fromP = phoneMap.get(debt.from_player_id)
+        const toP   = phoneMap.get(debt.to_player_id)
+        if (!fromP || !toP) continue
+        if (fromP.phone) {
+          sendWhatsApp(
+            fromP.phone,
+            msgDebtNotification({
+              fromName: fromP.name,
+              toName: toP.name,
+              amount: debt.amount,
+              sessionId,
+            })
+          )
+        }
+      }
+    }
+  } catch (e) {
+    console.error('WA debt-notification error:', e)
+  }
+
   return NextResponse.json({ ok: true, expense_status: 'settled', debts })
 }
 
-// ── Settlement engine (same logic as ExpensesTab) ────────────────────────────
+// ── Settlement engine ─────────────────────────────────────────────────────────
 
 interface WC { player_id: string; player?: { name: string } | null; bottles: number; price_per_bottle: number | null }
 interface WD { player_id: string; player?: { name: string } | null }
@@ -100,7 +164,6 @@ function computeDebts(wcs: WC[], wds: WD[], fos: FO[]) {
   }
   function add(id: string, amount: number) { balances.get(id)!.balance += amount }
 
-  // Whiskey
   const totalWhiskeyCost = wcs.reduce((s, c) => s + (c.price_per_bottle != null ? c.bottles * c.price_per_bottle : 0), 0)
   if (totalWhiskeyCost > 0 && wds.length > 0) {
     const perDrinker = totalWhiskeyCost / wds.length
@@ -117,7 +180,6 @@ function computeDebts(wcs: WC[], wds: WD[], fos: FO[]) {
     }
   }
 
-  // Food
   for (const fo of fos) {
     if (!fo.orderer || fo.participants.length === 0) continue
     const per = fo.total_cost / fo.participants.length
@@ -130,7 +192,6 @@ function computeDebts(wcs: WC[], wds: WD[], fos: FO[]) {
     }
   }
 
-  // Greedy settle
   const creditors: { id: string; name: string; amount: number }[] = []
   const debtors:   { id: string; name: string; amount: number }[] = []
   for (const [id, { name, balance }] of Array.from(balances.entries())) {

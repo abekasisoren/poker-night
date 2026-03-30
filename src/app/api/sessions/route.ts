@@ -3,6 +3,8 @@ export const dynamic = 'force-dynamic'
 import { NextRequest, NextResponse } from 'next/server'
 import { createServerClient } from '@/lib/supabase/server'
 import { verifyPin } from '@/lib/pin'
+import { sendWhatsAppBulk, msgSessionCreated } from '@/lib/whatsapp'
+import { formatDate, formatTime } from '@/lib/utils'
 
 export async function GET(req: NextRequest) {
   const supabase = createServerClient()
@@ -51,5 +53,27 @@ export async function POST(req: NextRequest) {
     .single()
 
   if (error) return NextResponse.json({ error: error.message }, { status: 500 })
+
+  // ── WhatsApp: notify all players a game has been created ──────────────────
+  try {
+    const { data: allPlayers } = await supabase
+      .from('players')
+      .select('id, name, phone')
+    if (allPlayers?.length) {
+      const hostName = (data.host as { name: string } | null)?.name ?? 'TBD'
+      const msg = msgSessionCreated({
+        date: formatDate(date),
+        time: formatTime(start_time),
+        location,
+        host: hostName,
+        sessionId: data.id,
+      })
+      // Don't await — fire and forget so response isn't delayed
+      sendWhatsAppBulk(allPlayers, msg)
+    }
+  } catch (e) {
+    console.error('WA session-created error:', e)
+  }
+
   return NextResponse.json(data, { status: 201 })
 }

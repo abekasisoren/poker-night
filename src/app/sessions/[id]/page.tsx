@@ -25,6 +25,7 @@ export default function SessionPage() {
   const { toast } = useToast()
   const [session, setSession] = useState<Session | null>(null)
   const [allPlayers, setAllPlayers] = useState<Player[]>([])
+  const [confirmedPlayers, setConfirmedPlayers] = useState<Player[]>([])
   const [loading, setLoading] = useState(true)
   const [tab, setTab] = useState<Tab>('rsvp')
   const [showStartPin, setShowStartPin] = useState(false)
@@ -35,9 +36,15 @@ export default function SessionPage() {
     Promise.all([
       fetch(`/api/sessions/${id}`).then((r) => r.json()),
       fetch('/api/players').then((r) => r.json()),
-    ]).then(([sess, players]) => {
+      fetch(`/api/sessions/${id}/rsvp`).then((r) => r.json()),
+    ]).then(([sess, players, rsvps]) => {
       setSession(sess)
       setAllPlayers(players ?? [])
+      // Only players who said yes
+      const yesIds = new Set(
+        (rsvps ?? []).filter((r: { response: string }) => r.response === 'yes').map((r: { player_id: string }) => r.player_id)
+      )
+      setConfirmedPlayers((players ?? []).filter((p: Player) => yesIds.has(p.id)))
     }).finally(() => setLoading(false))
   }, [id])
 
@@ -186,7 +193,7 @@ export default function SessionPage() {
           sessionId={id}
           expenseStatus={session.expense_status ?? null}
           currentPlayer={player}
-          allPlayers={allPlayers}
+          allPlayers={confirmedPlayers.length > 0 ? confirmedPlayers : allPlayers}
           onStatusChange={(status) =>
             setSession((s) => s ? { ...s, expense_status: status } : s)
           }

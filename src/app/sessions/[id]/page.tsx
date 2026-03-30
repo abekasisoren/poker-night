@@ -36,7 +36,7 @@ export default function SessionPage() {
     Promise.all([
       fetch(`/api/sessions/${id}`).then((r) => r.json()),
       fetch('/api/players').then((r) => r.json()),
-      fetch(`/api/sessions/${id}/rsvp`).then((r) => r.json()),
+      fetch(`/api/sessions/${id}/rsvps`).then((r) => r.json()),
     ]).then(([sess, players, rsvps]) => {
       setSession(sess)
       setAllPlayers(players ?? [])

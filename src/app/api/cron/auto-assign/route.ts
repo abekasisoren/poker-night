@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createServerClient } from '@/lib/supabase/server'
-import { sendWhatsApp, msgBringList } from '@/lib/whatsapp'
+import { sendWhatsApp, sendWhatsAppBulk, msgBringList, msgWhiskeyNeeded, msgChipsNeeded } from '@/lib/whatsapp'
 import { formatDate, formatTime } from '@/lib/utils'
 
 export const dynamic = 'force-dynamic'
@@ -201,6 +201,26 @@ export async function GET(req: NextRequest) {
         sendWhatsApp(
           phone,
           msgBringList({ date: dateStr, time: timeStr, location: session.location, items: myItems })
+        )
+      }
+
+      // ── WhatsApp: whiskey / kit needed if not confirmed by host ─────────────
+      const hostId   = session.host_id as string
+      const hostName = (session.host as Player | null)?.name ?? 'Host'
+      const nonHostPlayers = confirmed
+        .filter((p) => p.id !== hostId)
+        .map((p) => ({ phone: phoneMap.get(p.id) ?? null, name: p.name }))
+
+      if (session.host_has_whiskey !== true && nonHostPlayers.length > 0) {
+        sendWhatsAppBulk(
+          nonHostPlayers,
+          msgWhiskeyNeeded({ date: dateStr, host: hostName, sessionId: session.id })
+        )
+      }
+      if (session.host_has_chips !== true && nonHostPlayers.length > 0) {
+        sendWhatsAppBulk(
+          nonHostPlayers,
+          msgChipsNeeded({ date: dateStr, host: hostName, sessionId: session.id })
         )
       }
     } catch (e) {

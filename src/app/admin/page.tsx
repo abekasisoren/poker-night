@@ -14,6 +14,7 @@ export default function AdminPage() {
   const [editing, setEditing] = useState<Record<string, string>>({})
   const [saving, setSaving] = useState<string | null>(null)
   const [saved, setSaved] = useState<string | null>(null)
+  const [saveError, setSaveError] = useState<string | null>(null)
 
   useEffect(() => {
     fetch('/api/players')
@@ -33,16 +34,24 @@ export default function AdminPage() {
   async function savePhone(playerId: string) {
     const pin = getStoredPin()
     setSaving(playerId)
-    const res = await fetch(`/api/players/${playerId}`, {
-      method: 'PATCH',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ pin, phone: editing[playerId] }),
-    })
-    if (res.ok) {
-      const updated: Player = await res.json()
-      setPlayers((prev) => prev.map((p) => (p.id === updated.id ? updated : p)))
-      setSaved(playerId)
-      setTimeout(() => setSaved(null), 2000)
+    setSaveError(null)
+    try {
+      const res = await fetch(`/api/players/${playerId}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ pin, phone: editing[playerId] }),
+      })
+      if (res.ok) {
+        const updated: Player = await res.json()
+        setPlayers((prev) => prev.map((p) => (p.id === updated.id ? updated : p)))
+        setSaved(playerId)
+        setTimeout(() => setSaved(null), 2000)
+      } else {
+        const body = await res.json().catch(() => ({}))
+        setSaveError(body.error ?? `Error ${res.status}`)
+      }
+    } catch (e) {
+      setSaveError('Network error')
     }
     setSaving(null)
   }
@@ -127,6 +136,12 @@ export default function AdminPage() {
           )
         })}
       </div>
+
+      {saveError && (
+        <div className="mt-4 rounded-xl border border-red-500/30 bg-red-500/10 p-3 text-sm text-red-400">
+          ⚠️ Save failed: {saveError}
+        </div>
+      )}
 
       <div className="mt-6 rounded-xl border border-[#30363d] bg-[#161b22] p-4">
         <p className="text-xs font-bold text-gray-400 mb-1">Coverage</p>
